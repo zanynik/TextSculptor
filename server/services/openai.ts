@@ -1,9 +1,18 @@
 import OpenAI from "openai";
 
 // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
-const openai = new OpenAI({ 
-  apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_ENV_VAR || "default_key"
-});
+function getOpenAIClient() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  console.log('OpenAI API Key (last 10 chars):', apiKey ? '...' + apiKey.slice(-10) : 'NOT SET');
+  
+  if (!apiKey || apiKey === "default_key") {
+    throw new Error("OpenAI API key not properly configured");
+  }
+  
+  return new OpenAI({ 
+    apiKey: apiKey
+  });
+}
 
 export interface TextChunk {
   content: string;
@@ -17,6 +26,7 @@ export interface ChunkingResult {
 
 export async function chunkText(text: string): Promise<ChunkingResult> {
   try {
+    const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -60,6 +70,7 @@ export async function chunkText(text: string): Promise<ChunkingResult> {
 
 export async function generateEmbedding(text: string): Promise<number[]> {
   try {
+    const openai = getOpenAIClient();
     const response = await openai.embeddings.create({
       model: "text-embedding-3-small",
       input: text,
@@ -74,6 +85,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
 export async function generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
   try {
+    const openai = getOpenAIClient();
     const response = await openai.embeddings.create({
       model: "text-embedding-3-small",
       input: texts,

@@ -119,16 +119,16 @@ export default function UploadArea({ onBookCreated }: UploadAreaProps) {
             <p className="text-xs text-gray-500">or click to browse</p>
           </>
         )}
-        
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".txt"
-          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-          onChange={handleFileInputChange}
-          disabled={uploadMutation.isPending}
-        />
       </div>
+      
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".txt"
+        className="hidden"
+        onChange={handleFileInputChange}
+        disabled={uploadMutation.isPending}
+      />
 
       {uploadMutation.isPending && (
         <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
