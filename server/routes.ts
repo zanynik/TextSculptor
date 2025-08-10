@@ -21,26 +21,51 @@ const upload = multer({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Upload and process text file
-  app.post("/api/upload", upload.single('file'), async (req, res) => {
+  // Upload and process text file(s)
+  app.post("/api/upload", upload.array('files'), async (req, res) => {
     try {
-      if (!req.file) {
-        return res.status(400).json({ message: "No file uploaded" });
+      if (!req.files || (req.files as Express.Multer.File[]).length === 0) {
+        return res.status(400).json({ message: "No files uploaded" });
       }
 
-      const text = req.file.buffer.toString('utf-8');
+      const files = req.files as Express.Multer.File[];
+      let text = files.map(file => file.buffer.toString('utf-8')).join('\n\n');
+
       if (!text.trim()) {
-        return res.status(400).json({ message: "File is empty" });
+        return res.status(400).json({ message: "Files are empty" });
+      }
+
+      const { bookId } = req.body;
+      let book;
+
+      if (bookId) {
+        book = await storage.getBook(bookId);
+        if (book) {
+          // Append text and delete old structure
+          const existingText = book.originalText || '';
+          text = existingText + '\n\n' + text;
+
+          const oldChunks = await storage.getAllChunksByBookId(bookId);
+          oldChunks.forEach(chunk => vectorStore.remove(chunk.id));
+          await storage.deleteChaptersByBookId(bookId);
+
+          book.originalText = text; // Update original text
+        }
       }
 
       // Step 1: Chunk the text using OpenAI
       const chunkingResult = await chunkText(text);
       
-      // Step 2: Create book record
-      const book = await storage.createBook({
-        title: chunkingResult.suggestedTitle,
-        originalText: text,
-      });
+      // Step 2: Create or update book record
+      if (!book) {
+        book = await storage.createBook({
+          title: chunkingResult.suggestedTitle,
+          originalText: text,
+        });
+      } else {
+        // Optional: update title if it was a placeholder
+        // book.title = chunkingResult.suggestedTitle;
+      }
 
       // Step 3: Generate embeddings for all chunks
       const chunkContents = chunkingResult.chunks.map(chunk => chunk.content);
@@ -201,6 +226,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ message: "Chunk deleted successfully" });
     } catch (error) {
       res.status(500).json({ message: "Failed to delete chunk" });
+    }
+  });
+
+  // Reorder chunk
+  app.post("/api/chunks/:id/reorder", async (req, res) => {
+    try {
+      const { direction } = req.body;
+      if (direction !== 'up' && direction !== 'down') {
+        return res.status(400).json({ message: "Invalid direction" });
+      }
+
+      await storage.swapChunkOrder(req.params.id, direction);
+      res.json({ message: "Chunk reordered successfully" });
+
+    } catch (error) {
+      console.error("Chunk reorder error:", error);
+      res.status(500).json({
+        message: "Failed to reorder chunk",
+        error: (error as Error).message
+      });
     }
   });
 
