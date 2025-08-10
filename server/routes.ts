@@ -35,7 +35,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Files are empty" });
       }
 
-      const { bookId } = req.body;
+      const { bookId, temperature } = req.body;
       let book;
 
       if (bookId) {
@@ -54,7 +54,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Step 1: Chunk the text using OpenAI
-      const chunkingResult = await chunkText(text);
+      const chunkingResult = await chunkText(text, temperature ? parseFloat(temperature) : 0.5);
       
       // Step 2: Create or update book record
       if (!book) {

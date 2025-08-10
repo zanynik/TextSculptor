@@ -24,7 +24,7 @@ export interface ChunkingResult {
   suggestedTitle: string;
 }
 
-export async function chunkText(text: string): Promise<ChunkingResult> {
+export async function chunkText(text: string, temperature: number = 0.5): Promise<ChunkingResult> {
   try {
     const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
@@ -32,20 +32,30 @@ export async function chunkText(text: string): Promise<ChunkingResult> {
       messages: [
         {
           role: "system",
-          content: `You are an expert text organizer. Split the following messy personal notes into coherent paragraphs or sections, each representing a single idea or topic. 
+          content: `You are an expert text organizer. Your task is to process unstructured text and organize it into a coherent book-like structure.
 
-          Rules:
-          - Each chunk should be 1-3 paragraphs
-          - Chunks should be coherent and self-contained
-          - Maintain the original meaning and content
-          - Suggest a title for the overall document
-          - Return as JSON in this exact format: { "chunks": [{"content": "text", "title": "optional section title"}], "suggestedTitle": "document title" }`
+          1.  **Analyze the entire text** to understand its underlying themes and topics.
+          2.  **Suggest a concise, descriptive title** for the entire document. This should be the main title of the book.
+          3.  **Divide the text into logical chunks.** Each chunk should focus on a single, self-contained idea.
+          4.  **For each chunk, create a short, informative title.** This will serve as a section heading.
+          5.  **Control the level of rewriting** based on the user's preference. A lower temperature (e.g., 0.2) means more literal chunking with minimal changes. A higher temperature (e.g., 0.8) allows for more significant rewriting, paraphrasing, and summarization to improve clarity and flow.
+
+          **Output Format:**
+          Return a single JSON object with the following structure:
+          {
+            "suggestedTitle": "Your Document Title",
+            "chunks": [
+              { "title": "Section Title 1", "content": "The first chunk of text..." },
+              { "title": "Section Title 2", "content": "The second chunk of text..." }
+            ]
+          }`
         },
         {
           role: "user",
           content: text,
         },
       ],
+      temperature: temperature,
       response_format: { type: "json_object" },
     });
 
