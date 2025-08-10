@@ -2,6 +2,8 @@ import { useState, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { Slider } from "@/components/ui/slider";
+import { Label } from "@/components/ui/label";
 import type { BookStructure } from "@shared/schema";
 
 interface UploadAreaProps {
@@ -11,14 +13,18 @@ interface UploadAreaProps {
 
 export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
   const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadingFiles, setUploadingFiles] = useState<File[]>([]);
+  const [temperature, setTemperature] = useState(0.5);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const uploadMutation = useMutation({
     mutationFn: async (files: File[]) => {
+      setUploadingFiles(files);
       const formData = new FormData();
       files.forEach(file => formData.append('files', file));
+      formData.append('temperature', String(temperature));
       if (bookId) {
         formData.append('bookId', bookId);
       }
@@ -27,6 +33,7 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
       return response.json();
     },
     onSuccess: (data: BookStructure) => {
+      setUploadingFiles([]);
       queryClient.invalidateQueries({ queryKey: ['/api/books'] });
       toast({
         title: "File processed successfully",
@@ -35,6 +42,7 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
       onBookCreated?.(data);
     },
     onError: (error: Error) => {
+      setUploadingFiles([]);
       toast({
         title: "Upload failed",
         description: error.message,
@@ -115,18 +123,11 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
         onDragLeave={handleDragLeave}
         onClick={!uploadMutation.isPending ? handleClick : undefined}
       >
-        {uploadMutation.isPending ? (
-          <div className="space-y-2">
-            <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full mx-auto"></div>
-            <p className="text-sm text-gray-600 font-medium">Processing with AI...</p>
-          </div>
-        ) : (
-          <>
-            <i className="fas fa-cloud-upload-alt text-2xl text-gray-400 mb-2"></i>
-            <p className="text-sm text-gray-600 font-medium">Drop your .txt file(s) here</p>
-            <p className="text-xs text-gray-500">or click to browse</p>
-          </>
-        )}
+        <>
+          <i className="fas fa-cloud-upload-alt text-2xl text-gray-400 mb-2"></i>
+          <p className="text-sm text-gray-600 font-medium">Drop your .txt file(s) here</p>
+          <p className="text-xs text-gray-500">or click to browse</p>
+        </>
       </div>
       
       <input
@@ -139,11 +140,39 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
         disabled={uploadMutation.isPending}
       />
 
+      <div className="mt-4 space-y-2">
+        <div className="flex justify-between items-center">
+          <Label htmlFor="temperature" className="text-sm font-medium text-gray-700">
+            AI Rewriting Level
+          </Label>
+          <span className="text-sm font-mono text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
+            {temperature.toFixed(1)}
+          </span>
+        </div>
+        <Slider
+          id="temperature"
+          min={0}
+          max={1}
+          step={0.1}
+          value={[temperature]}
+          onValueChange={(value) => setTemperature(value[0])}
+          disabled={uploadMutation.isPending}
+        />
+      </div>
+
       {uploadMutation.isPending && (
         <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
           <div className="flex items-center space-x-2">
             <div className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full"></div>
             <span className="text-sm text-blue-700 font-medium">Processing with AI...</span>
+          </div>
+          <div className="mt-2 text-xs text-gray-600 space-y-1">
+            <p className="font-medium">Uploading:</p>
+            <ul className="list-disc list-inside">
+              {uploadingFiles.map(file => (
+                <li key={file.name} className="truncate">{file.name}</li>
+              ))}
+            </ul>
           </div>
           <div className="mt-2 w-full bg-blue-200 rounded-full h-2">
             <div className="bg-primary h-2 rounded-full transition-all duration-300 w-3/4"></div>

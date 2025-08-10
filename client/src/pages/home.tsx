@@ -1,14 +1,12 @@
 import { useState } from "react";
 import { useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import UploadArea from "@/components/upload-area";
 import BookSidebar from "@/components/book-sidebar";
-import ContentEditor from "@/components/content-editor";
+import SectionDisplay from "@/components/section-display";
 import type { BookStructure } from "@shared/schema";
 
 export default function Home() {
   const { id } = useParams<{ id?: string }>();
-  const [currentSectionId, setCurrentSectionId] = useState<string | null>(null);
 
   const { data: bookStructure, isLoading, error } = useQuery<BookStructure>({
     queryKey: ["/api/books", id],
@@ -20,30 +18,6 @@ export default function Home() {
     enabled: !id,
   });
 
-  // Set default section when book loads
-  useState(() => {
-    if (bookStructure && !currentSectionId) {
-      const firstSection = bookStructure.chapters[0]?.sections[0];
-      if (firstSection) {
-        setCurrentSectionId(firstSection.id);
-      }
-    }
-  });
-
-  const getCurrentSection = () => {
-    if (!bookStructure || !currentSectionId) return null;
-    
-    for (const chapter of bookStructure.chapters) {
-      for (const section of chapter.sections) {
-        if (section.id === currentSectionId) {
-          return { section, chapter };
-        }
-      }
-    }
-    return null;
-  };
-
-  const currentData = getCurrentSection();
   const showWelcome = !id && (!books || books.length === 0);
   const showBookContent = id && bookStructure;
 
@@ -79,13 +53,11 @@ export default function Home() {
       {/* Sidebar */}
       <BookSidebar
         bookStructure={bookStructure}
-        currentSectionId={currentSectionId}
-        onSectionSelect={setCurrentSectionId}
         books={books}
       />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col overflow-y-auto">
         {showWelcome && (
           <div className="flex-1 flex items-center justify-center">
             <div className="max-w-md mx-auto text-center px-6">
@@ -118,12 +90,19 @@ export default function Home() {
         )}
 
         {showBookContent && (
-          <ContentEditor
-            bookStructure={bookStructure}
-            currentSection={currentData?.section || null}
-            currentChapter={currentData?.chapter || null}
-            onSectionChange={setCurrentSectionId}
-          />
+          <div className="max-w-4xl mx-auto px-6 py-8 w-full">
+            {bookStructure.chapters.map(chapter => (
+              <div key={chapter.id}>
+                {chapter.sections.map(section => (
+                  <SectionDisplay
+                    key={section.id}
+                    section={section}
+                    chapterTitle={chapter.title}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>

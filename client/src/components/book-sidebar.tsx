@@ -7,15 +7,11 @@ import type { BookStructure, ChapterWithSections } from "@shared/schema";
 
 interface BookSidebarProps {
   bookStructure?: BookStructure;
-  currentSectionId?: string | null;
-  onSectionSelect: (sectionId: string) => void;
   books?: BookStructure[];
 }
 
 export default function BookSidebar({ 
   bookStructure, 
-  currentSectionId, 
-  onSectionSelect,
   books 
 }: BookSidebarProps) {
   const [expandedChapters, setExpandedChapters] = useState<Set<string>>(new Set());
@@ -23,15 +19,11 @@ export default function BookSidebar({
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  // Auto-expand chapter containing current section
+  // Auto-expand all chapters when book loads
   useState(() => {
-    if (bookStructure && currentSectionId) {
-      for (const chapter of bookStructure.chapters) {
-        if (chapter.sections.some(section => section.id === currentSectionId)) {
-          setExpandedChapters(prev => new Set([...prev, chapter.id]));
-          break;
-        }
-      }
+    if (bookStructure) {
+      const allChapterIds = bookStructure.chapters.map(c => c.id);
+      setExpandedChapters(new Set(allChapterIds));
     }
   });
 
@@ -181,12 +173,14 @@ export default function BookSidebar({
                         {chapter.sections.map((section) => (
                           <div 
                             key={section.id}
-                            className={`flex items-center space-x-2 p-2 rounded-md cursor-pointer transition-colors ${
-                              currentSectionId === section.id 
-                                ? 'bg-blue-50 border-l-2 border-primary' 
-                                : 'hover:bg-gray-50'
-                            }`}
-                            onClick={() => onSectionSelect(section.id)}
+                              className={`flex items-center space-x-2 p-2 rounded-md cursor-pointer transition-colors hover:bg-gray-50`}
+                              onClick={() => {
+                                // Scroll to section logic can be added here
+                                const element = document.getElementById(section.id);
+                                if (element) {
+                                  element.scrollIntoView({ behavior: 'smooth' });
+                                }
+                              }}
                           >
                             <i className="fas fa-file-alt text-xs text-gray-400"></i>
                             <span className="text-sm text-gray-700">{section.title}</span>
