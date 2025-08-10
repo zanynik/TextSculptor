@@ -1,4 +1,4 @@
-import { type Book, type Chapter, type Section, type Chunk, type InsertBook, type InsertChapter, type InsertSection, type InsertChunk, type UpdateChunk, type BookStructure } from "@shared/schema";
+import { type Book, type Chapter, type Section, type Chunk, type InsertBook, type InsertChapter, type InsertSection, type InsertChunk, type UpdateChunk, type BookStructure, isNumberArray } from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -15,6 +15,7 @@ export interface IStorage {
 
   // Section operations
   createSection(section: InsertSection): Promise<Section>;
+  getSection(id: string): Promise<Section | undefined>;
   getSectionsByChapterId(chapterId: string): Promise<Section[]>;
   deleteSection(id: string): Promise<void>;
 
@@ -110,6 +111,10 @@ export class MemStorage implements IStorage {
     return section;
   }
 
+  async getSection(id: string): Promise<Section | undefined> {
+    return this.sections.get(id);
+  }
+
   async getSectionsByChapterId(chapterId: string): Promise<Section[]> {
     return Array.from(this.sections.values())
       .filter(section => section.chapterId === chapterId)
@@ -129,6 +134,8 @@ export class MemStorage implements IStorage {
     const chunk: Chunk = { 
       ...insertChunk, 
       id, 
+      title: insertChunk.title || null,
+      embedding: insertChunk.embedding || null,
       createdAt: now,
       updatedAt: now
     };
@@ -155,6 +162,7 @@ export class MemStorage implements IStorage {
     const updated: Chunk = {
       ...existing,
       ...updateChunk,
+      embedding: isNumberArray(updateChunk.embedding) ? JSON.parse(JSON.stringify(updateChunk.embedding)) : existing.embedding,
       updatedAt: new Date(),
     };
     

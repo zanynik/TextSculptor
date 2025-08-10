@@ -154,15 +154,15 @@ export default function BookSidebar({
                 return (
                   <div key={chapter.id} className="book-chapter">
                     <div 
-                      className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-100 cursor-pointer"
+                      className="flex justify-between p-2 rounded-lg hover:bg-gray-100 cursor-pointer"
                       onClick={() => toggleChapter(chapter.id)}
                     >
-                      <div className="flex items-center space-x-2">
-                        <i className={`fas ${isExpanded ? 'fa-chevron-down' : 'fa-chevron-right'} text-xs text-gray-400 transition-transform`}></i>
-                        <i className="fas fa-bookmark text-primary text-sm"></i>
-                        <span className="font-medium text-slate-800">{chapter.title}</span>
+                      <div className="flex items-start space-x-2 flex-1">
+                        <i className={`fas ${isExpanded ? 'fa-chevron-down' : 'fa-chevron-right'} text-xs text-gray-400 transition-transform mt-1`}></i>
+                        <i className="fas fa-bookmark text-primary text-sm mt-1"></i>
+                        <span className="font-medium text-slate-800 flex-1">{chapter.title}</span>
                       </div>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-500 ml-2">
                         {getTotalSectionCount(chapter)} sections
                       </span>
                     </div>

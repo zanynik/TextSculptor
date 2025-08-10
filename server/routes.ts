@@ -1,11 +1,12 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertBookSchema, insertChunkSchema, updateChunkSchema } from "@shared/schema";
-import { chunkText, generateEmbedding, generateBatchEmbeddings } from "./services/openai";
+import { insertBookSchema, insertChunkSchema, updateChunkSchema, isNumberArray } from "@shared/schema";
+import { chunkText, generateEmbedding, generateBatchEmbeddings, rewriteChunk } from "./services/openai";
 import { vectorStore } from "./services/faiss";
 import { KMeansClustering, organizeIntoChaptersAndSections } from "./services/clustering";
 import multer from "multer";
+import type { Request, Response } from "express";
 
 // Configure multer for file uploads
 const upload = multer({ 
@@ -22,7 +23,7 @@ const upload = multer({
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Upload and process text file(s)
-  app.post("/api/upload", upload.array('files'), async (req, res) => {
+  app.post("/api/upload", upload.array('files'), async (req: Request, res: Response) => {
     try {
       if (!req.files || (req.files as Express.Multer.File[]).length === 0) {
         return res.status(400).json({ message: "No files uploaded" });
@@ -35,7 +36,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Files are empty" });
       }
 
-      const { bookId, temperature } = req.body;
+      const { bookId, rewriteLevel } = req.body;
       let book;
 
       if (bookId) {
@@ -54,7 +55,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Step 1: Chunk the text using OpenAI
-      const chunkingResult = await chunkText(text, temperature ? parseFloat(temperature) : 0.5);
+      const chunkingResult = await chunkText(text, rewriteLevel ? parseFloat(rewriteLevel) : 0.5);
       
       // Step 2: Create or update book record
       if (!book) {
@@ -120,15 +121,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const chunk = chunkingResult.chunks[originalIndex];
             const embedding = embeddings[originalIndex];
 
-            await storage.createChunk({
-              sectionId: section.id,
-              content: chunk.content,
-              embedding,
-              order: chunkIndex,
-              similarity: 0.95, // Placeholder - could calculate actual similarity
-              wordCount: chunk.content.split(/\s+/).length,
-              isEmbedded: 1,
-            });
+            const cleanEmbedding = JSON.parse(JSON.stringify(embedding));
+            if (isNumberArray(cleanEmbedding)) {
+              await storage.createChunk({
+                sectionId: section.id,
+                title: chunk.title,
+                content: chunk.content,
+                embedding: cleanEmbedding,
+                order: chunkIndex,
+                similarity: 0.95, // Placeholder - could calculate actual similarity
+                wordCount: chunk.content.split(/\s+/).length,
+                isEmbedded: 1,
+              });
+            }
           }
         }
       }
@@ -147,7 +152,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get all books
-  app.get("/api/books", async (req, res) => {
+  app.get("/api/books", async (req: Request, res: Response) => {
     try {
       const books = await storage.getAllBooks();
       res.json(books);
@@ -157,7 +162,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get book structure
-  app.get("/api/books/:id", async (req, res) => {
+  app.get("/api/books/:id", async (req: Request, res: Response) => {
     try {
       const bookStructure = await storage.getBookStructure(req.params.id);
       if (!bookStructure) {
@@ -170,7 +175,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update chunk content
-  app.patch("/api/chunks/:id", async (req, res) => {
+  app.patch("/api/chunks/:id", async (req: Request, res: Response) => {
     try {
       const validation = updateChunkSchema.safeParse(req.body);
       if (!validation.success) {
@@ -213,7 +218,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete chunk
-  app.delete("/api/chunks/:id", async (req, res) => {
+  app.delete("/api/chunks/:id", async (req: Request, res: Response) => {
     try {
       const chunk = await storage.getChunk(req.params.id);
       if (!chunk) {
@@ -229,8 +234,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create a new chunk in a section
+  app.post("/api/sections/:id/chunks", async (req: Request, res: Response) => {
+    try {
+      const section = await storage.getSection(req.params.id);
+      if (!section) {
+        return res.status(404).json({ message: "Section not found" });
+      }
+
+      const { content = '', order } = req.body;
+
+      const newChunk = await storage.createChunk({
+        sectionId: req.params.id,
+        content,
+        order,
+        isEmbedded: 0,
+        wordCount: 0,
+      });
+
+      res.json(newChunk);
+    } catch (error) {
+      console.error("Chunk creation error:", error);
+      res.status(500).json({
+        message: "Failed to create chunk",
+        error: (error as Error).message,
+      });
+    }
+  });
+
+  // Rewrite chunk content
+  app.post("/api/chunks/:id/rewrite", async (req: Request, res: Response) => {
+    try {
+      const { rewriteLevel } = req.body;
+      const chunk = await storage.getChunk(req.params.id);
+
+      if (!chunk) {
+        return res.status(404).json({ message: "Chunk not found" });
+      }
+
+      const { content: rewrittenContent } = await rewriteChunk(chunk.content, rewriteLevel);
+
+      // We'll just return the rewritten content for the user to confirm,
+      // not saving it to DB yet.
+      res.json({ content: rewrittenContent });
+
+    } catch (error) {
+      console.error("Chunk rewrite error:", error);
+      res.status(500).json({
+        message: "Failed to rewrite chunk",
+        error: (error as Error).message,
+      });
+    }
+  });
+
   // Reorder chunk
-  app.post("/api/chunks/:id/reorder", async (req, res) => {
+  app.post("/api/chunks/:id/reorder", async (req: Request, res: Response) => {
     try {
       const { direction } = req.body;
       if (direction !== 'up' && direction !== 'down') {
@@ -250,7 +308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Export book as text/markdown
-  app.get("/api/books/:id/export", async (req, res) => {
+  app.get("/api/books/:id/export", async (req: Request, res: Response) => {
     try {
       const bookStructure = await storage.getBookStructure(req.params.id);
       if (!bookStructure) {
@@ -263,11 +321,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         markdown += `## ${chapter.title}\n\n`;
         
         for (const section of chapter.sections) {
-          if (section.title !== "Overview") {
-            markdown += `### ${section.title}\n\n`;
-          }
+          // Section titles are now always included, as "Overview" is filtered on the client
+          markdown += `### ${section.title}\n\n`;
           
           for (const chunk of section.chunks) {
+            if (chunk.title) {
+              markdown += `#### ${chunk.title}\n\n`;
+            }
             markdown += `${chunk.content}\n\n`;
           }
         }
@@ -283,7 +343,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Re-organize book structure
-  app.post("/api/books/:id/reorganize", async (req, res) => {
+  app.post("/api/books/:id/reorganize", async (req: Request, res: Response) => {
     try {
       const bookStructure = await storage.getBookStructure(req.params.id);
       if (!bookStructure) {

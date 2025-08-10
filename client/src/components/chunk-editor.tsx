@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { Slider } from "@/components/ui/slider";
 import type { Chunk } from "@shared/schema";
 
 interface ChunkEditorProps {
@@ -100,6 +101,33 @@ export default function ChunkEditor({ chunk, index, totalChunks }: ChunkEditorPr
       setIsEditing(false);
     }
   };
+
+  const [rewriteLevel, setRewriteLevel] = useState(0.5);
+  const [rewrittenContent, setRewrittenContent] = useState<string | null>(null);
+
+  const rewriteMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('POST', `/api/chunks/${chunk.id}/rewrite`, {
+        rewriteLevel,
+      });
+      const data = await response.json();
+      return data.content;
+    },
+    onSuccess: (newContent: string) => {
+      setRewrittenContent(newContent);
+      toast({
+        title: "Rewrite suggestion ready",
+        description: "Review the suggestion and apply or discard.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Rewrite failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   const handleFocus = () => {
     setIsEditing(true);
@@ -203,6 +231,53 @@ export default function ChunkEditor({ chunk, index, totalChunks }: ChunkEditorPr
           </div>
         </div>
 
+        {/* AI Rewrite Toolbar */}
+        <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-medium text-gray-700">AI Rewrite</label>
+            <button
+              className="px-3 py-1 bg-primary text-white text-sm rounded-md hover:bg-blue-700 disabled:opacity-50"
+              onClick={() => rewriteMutation.mutate()}
+              disabled={rewriteMutation.isPending}
+            >
+              {rewriteMutation.isPending ? 'Generating...' : 'Rewrite'}
+            </button>
+          </div>
+          <Slider
+            min={0}
+            max={1}
+            step={0.1}
+            value={[rewriteLevel]}
+            onValueChange={(value: number[]) => setRewriteLevel(value[0])}
+          />
+        </div>
+
+        {/* Rewritten Content Display */}
+        {rewrittenContent && (
+          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm font-medium text-blue-800 mb-2">Suggested Rewrite:</p>
+            <p className="text-gray-800 leading-relaxed whitespace-pre-wrap">{rewrittenContent}</p>
+            <div className="mt-4 flex space-x-2">
+              <button
+                className="px-3 py-1 bg-green-600 text-white text-sm rounded-md hover:bg-green-700"
+                onClick={() => {
+                  setContent(rewrittenContent);
+                  setRewrittenContent(null);
+                  updateMutation.mutate(rewrittenContent);
+                }}
+              >
+                Apply
+              </button>
+              <button
+                className="px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300"
+                onClick={() => setRewrittenContent(null)}
+              >
+                Discard
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Embedding Status */}
         <div className="mt-2 flex items-center space-x-2 text-xs text-gray-500">
           <div className="flex items-center space-x-1">
@@ -211,7 +286,7 @@ export default function ChunkEditor({ chunk, index, totalChunks }: ChunkEditorPr
           </div>
           <span>•</span>
           <span>
-            {new Date(chunk.updatedAt || chunk.createdAt).toLocaleString()}
+            {new Date(chunk.updatedAt || chunk.createdAt || Date.now()).toLocaleString()}
           </span>
           <span>•</span>
           <span>{chunk.wordCount || content.split(/\s+/).length} words</span>
