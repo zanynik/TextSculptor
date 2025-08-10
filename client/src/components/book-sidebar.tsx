@@ -130,7 +130,7 @@ export default function BookSidebar({
         </div>
         
         {/* File Upload Area */}
-        <UploadArea onBookCreated={handleBookCreated} />
+        <UploadArea onBookCreated={handleBookCreated} bookId={bookStructure?.id} />
       </div>
       
       {/* Book List (when no specific book is selected) */}

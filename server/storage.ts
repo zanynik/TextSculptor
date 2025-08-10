@@ -25,6 +25,7 @@ export interface IStorage {
   updateChunk(id: string, chunk: UpdateChunk): Promise<Chunk>;
   deleteChunk(id: string): Promise<void>;
   getAllChunksByBookId(bookId: string): Promise<Chunk[]>;
+  swapChunkOrder(chunkId: string, direction: 'up' | 'down'): Promise<void>;
 
   // Complex queries
   getBookStructure(bookId: string): Promise<BookStructure | undefined>;
@@ -163,6 +164,33 @@ export class MemStorage implements IStorage {
 
   async deleteChunk(id: string): Promise<void> {
     this.chunks.delete(id);
+  }
+
+  async swapChunkOrder(chunkId: string, direction: 'up' | 'down'): Promise<void> {
+    const chunk = await this.getChunk(chunkId);
+    if (!chunk) throw new Error("Chunk not found");
+
+    const siblings = await this.getChunksBySectionId(chunk.sectionId);
+    const currentIndex = siblings.findIndex(c => c.id === chunkId);
+
+    if (currentIndex === -1) throw new Error("Chunk not found in its section");
+
+    const swapIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+
+    if (swapIndex < 0 || swapIndex >= siblings.length) {
+      // Already at the top or bottom
+      return;
+    }
+
+    const otherChunk = siblings[swapIndex];
+
+    // Swap order property
+    const tempOrder = chunk.order;
+    chunk.order = otherChunk.order;
+    otherChunk.order = tempOrder;
+
+    await this.updateChunk(chunk.id, { order: chunk.order });
+    await this.updateChunk(otherChunk.id, { order: otherChunk.order });
   }
 
   async getAllChunksByBookId(bookId: string): Promise<Chunk[]> {

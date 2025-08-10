@@ -63,6 +63,26 @@ export default function ChunkEditor({ chunk, index, totalChunks }: ChunkEditorPr
     },
   });
 
+  const reorderMutation = useMutation({
+    mutationFn: async (direction: 'up' | 'down') => {
+      const response = await apiRequest('POST', `/api/chunks/${chunk.id}/reorder`, { direction });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/books'] });
+      toast({
+        title: "Chunk moved",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Move failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleBlur = () => {
     if (content !== chunk.content && content.trim()) {
       updateMutation.mutate(content);
@@ -141,14 +161,16 @@ export default function ChunkEditor({ chunk, index, totalChunks }: ChunkEditorPr
             <button 
               className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
               title="Move up"
-              disabled={index === 0}
+              disabled={index === 0 || reorderMutation.isPending}
+              onClick={() => reorderMutation.mutate('up')}
             >
               <i className="fas fa-arrow-up text-xs"></i>
             </button>
             <button 
               className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
               title="Move down"
-              disabled={index === totalChunks - 1}
+              disabled={index === totalChunks - 1 || reorderMutation.isPending}
+              onClick={() => reorderMutation.mutate('down')}
             >
               <i className="fas fa-arrow-down text-xs"></i>
             </button>

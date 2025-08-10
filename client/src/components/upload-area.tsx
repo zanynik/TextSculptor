@@ -6,18 +6,22 @@ import type { BookStructure } from "@shared/schema";
 
 interface UploadAreaProps {
   onBookCreated?: (book: BookStructure) => void;
+  bookId?: string | null;
 }
 
-export default function UploadArea({ onBookCreated }: UploadAreaProps) {
+export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const uploadMutation = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async (files: File[]) => {
       const formData = new FormData();
-      formData.append('file', file);
+      files.forEach(file => formData.append('files', file));
+      if (bookId) {
+        formData.append('bookId', bookId);
+      }
       
       const response = await apiRequest('POST', '/api/upload', formData);
       return response.json();
@@ -39,26 +43,30 @@ export default function UploadArea({ onBookCreated }: UploadAreaProps) {
     },
   });
 
-  const handleFileSelect = (file: File) => {
-    if (file.type !== 'text/plain') {
-      toast({
-        title: "Invalid file type",
-        description: "Please upload a .txt file",
-        variant: "destructive",
-      });
-      return;
-    }
+  const handleFileSelect = (files: File[]) => {
+    const validFiles = files.filter(file => {
+      if (file.type !== 'text/plain') {
+        toast({
+          title: "Invalid file type",
+          description: `Skipping non-txt file: ${file.name}`,
+          variant: "destructive",
+        });
+        return false;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        toast({
+          title: "File too large",
+          description: `Skipping file larger than 10MB: ${file.name}`,
+          variant: "destructive",
+        });
+        return false;
+      }
+      return true;
+    });
 
-    if (file.size > 10 * 1024 * 1024) {
-      toast({
-        title: "File too large",
-        description: "Please upload a file smaller than 10MB",
-        variant: "destructive",
-      });
-      return;
+    if (validFiles.length > 0) {
+      uploadMutation.mutate(validFiles);
     }
-
-    uploadMutation.mutate(file);
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -67,7 +75,7 @@ export default function UploadArea({ onBookCreated }: UploadAreaProps) {
     
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
-      handleFileSelect(files[0]);
+      handleFileSelect(files);
     }
   };
 
@@ -88,7 +96,7 @@ export default function UploadArea({ onBookCreated }: UploadAreaProps) {
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      handleFileSelect(files[0]);
+      handleFileSelect(Array.from(files));
     }
   };
 
@@ -115,7 +123,7 @@ export default function UploadArea({ onBookCreated }: UploadAreaProps) {
         ) : (
           <>
             <i className="fas fa-cloud-upload-alt text-2xl text-gray-400 mb-2"></i>
-            <p className="text-sm text-gray-600 font-medium">Drop your .txt file here</p>
+            <p className="text-sm text-gray-600 font-medium">Drop your .txt file(s) here</p>
             <p className="text-xs text-gray-500">or click to browse</p>
           </>
         )}
@@ -125,6 +133,7 @@ export default function UploadArea({ onBookCreated }: UploadAreaProps) {
         ref={fileInputRef}
         type="file"
         accept=".txt"
+        multiple
         className="hidden"
         onChange={handleFileInputChange}
         disabled={uploadMutation.isPending}
