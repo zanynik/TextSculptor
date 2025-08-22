@@ -14,7 +14,8 @@ interface UploadAreaProps {
 export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<File[]>([]);
-  const [temperature, setTemperature] = useState(0.5);
+  const [processedFiles, setProcessedFiles] = useState<string[]>([]);
+  const [rewriteLevel, setRewriteLevel] = useState(0.5);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -24,7 +25,7 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
       setUploadingFiles(files);
       const formData = new FormData();
       files.forEach(file => formData.append('files', file));
-      formData.append('temperature', String(temperature));
+      formData.append('rewriteLevel', String(rewriteLevel));
       if (bookId) {
         formData.append('bookId', bookId);
       }
@@ -33,6 +34,8 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
       return response.json();
     },
     onSuccess: (data: BookStructure) => {
+      const newFileNames = uploadingFiles.map(f => f.name);
+      setProcessedFiles(prev => [...prev, ...newFileNames]);
       setUploadingFiles([]);
       queryClient.invalidateQueries({ queryKey: ['/api/books'] });
       toast({
@@ -142,23 +145,34 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
 
       <div className="mt-4 space-y-2">
         <div className="flex justify-between items-center">
-          <Label htmlFor="temperature" className="text-sm font-medium text-gray-700">
+          <Label htmlFor="rewriteLevel" className="text-sm font-medium text-gray-700">
             AI Rewriting Level
           </Label>
           <span className="text-sm font-mono text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
-            {temperature.toFixed(1)}
+            {rewriteLevel.toFixed(1)}
           </span>
         </div>
         <Slider
-          id="temperature"
+          id="rewriteLevel"
           min={0}
           max={1}
           step={0.1}
-          value={[temperature]}
-          onValueChange={(value) => setTemperature(value[0])}
+          value={[rewriteLevel]}
+          onValueChange={(value) => setRewriteLevel(value[0])}
           disabled={uploadMutation.isPending}
         />
       </div>
+
+      {processedFiles.length > 0 && (
+        <div className="mt-4">
+          <h4 className="text-sm font-medium text-gray-700 mb-2">Processed Files:</h4>
+          <ul className="text-xs text-gray-600 space-y-1 list-disc list-inside">
+            {processedFiles.map((fileName, index) => (
+              <li key={index}>{fileName}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {uploadMutation.isPending && (
         <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">

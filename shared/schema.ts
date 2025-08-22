@@ -30,6 +30,7 @@ export const sections = pgTable("sections", {
 export const chunks = pgTable("chunks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   sectionId: varchar("section_id").notNull(),
+  title: text("title"),
   content: text("content").notNull(),
   embedding: json("embedding").$type<number[]>(),
   order: integer("order").notNull(),
@@ -104,3 +105,7 @@ export type ProcessingStatus = {
   progress: number;
   message: string;
 };
+
+export function isNumberArray(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every(item => typeof item === 'number');
+}

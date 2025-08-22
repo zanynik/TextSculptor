@@ -24,11 +24,20 @@ export interface ChunkingResult {
   suggestedTitle: string;
 }
 
-export async function chunkText(text: string, temperature: number = 0.5): Promise<ChunkingResult> {
+function getReasoningEffort(level: number): 'minimal' | 'low' | 'medium' | 'high' {
+  if (level < 0.3) return 'minimal';
+  if (level < 0.6) return 'low';
+  if (level < 0.9) return 'medium';
+  return 'high';
+}
+
+export async function chunkText(text: string, rewriteLevel: number = 0.5): Promise<ChunkingResult> {
   try {
     const openai = getOpenAIClient();
+    const reasoningEffort = getReasoningEffort(rewriteLevel);
+
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5",
       messages: [
         {
           role: "system",
@@ -38,7 +47,7 @@ export async function chunkText(text: string, temperature: number = 0.5): Promis
           2.  **Suggest a concise, descriptive title** for the entire document. This should be the main title of the book.
           3.  **Divide the text into logical chunks.** Each chunk should focus on a single, self-contained idea.
           4.  **For each chunk, create a short, informative title.** This will serve as a section heading.
-          5.  **Control the level of rewriting** based on the user's preference. A lower temperature (e.g., 0.2) means more literal chunking with minimal changes. A higher temperature (e.g., 0.8) allows for more significant rewriting, paraphrasing, and summarization to improve clarity and flow.
+          5.  **Control the level of rewriting** based on the user's preference, indicated by reasoning_effort. 'minimal' means literal chunking. 'high' allows for significant rewriting to improve clarity.
 
           **Output Format:**
           Return a single JSON object with the following structure:
@@ -55,7 +64,7 @@ export async function chunkText(text: string, temperature: number = 0.5): Promis
           content: text,
         },
       ],
-      temperature: temperature,
+      reasoning_effort: reasoningEffort,
       response_format: { type: "json_object" },
     });
 
@@ -75,6 +84,44 @@ export async function chunkText(text: string, temperature: number = 0.5): Promis
   } catch (error) {
     console.error("Error chunking text:", error);
     throw new Error("Failed to process text with AI: " + (error as Error).message);
+  }
+}
+
+export async function rewriteChunk(
+  content: string,
+  rewriteLevel: number = 0.5
+): Promise<{ content: string }> {
+  try {
+    const openai = getOpenAIClient();
+    const reasoningEffort = getReasoningEffort(rewriteLevel);
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-5",
+      messages: [
+        {
+          role: "system",
+          content: `You are an expert text editor. Your task is to rewrite the given text based on the user's preferred level of intensity, controlled by 'reasoning_effort'.
+          - 'minimal': Fix grammar and spelling only.
+          - 'low': Improve clarity and flow slightly.
+          - 'medium': Restructure sentences for better readability.
+          - 'high': Paraphrase and simplify complex ideas significantly.
+          Return only the rewritten text in a JSON object: { "content": "..." }`
+        },
+        {
+          role: "user",
+          content: content,
+        },
+      ],
+      reasoning_effort: reasoningEffort,
+      response_format: { type: "json_object" },
+    });
+
+    const result = JSON.parse(response.choices[0].message.content || "{}");
+    return { content: result.content || content };
+
+  } catch (error) {
+    console.error("Error rewriting chunk:", error);
+    throw new Error("Failed to rewrite text with AI: " + (error as Error).message);
   }
 }
 
