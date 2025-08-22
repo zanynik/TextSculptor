@@ -37,7 +37,7 @@ export async function chunkText(text: string, rewriteLevel: number = 0.5): Promi
     const reasoningEffort = getReasoningEffort(rewriteLevel);
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5",
       messages: [
         {
           role: "system",

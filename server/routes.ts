@@ -14,11 +14,11 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['text/plain', 'audio/mpeg', 'audio/wav'];
+    const allowedTypes = ['text/plain', 'audio/mpeg', 'audio/wav', 'audio/mp4'];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Only .txt, .mp3, and .wav files are allowed'));
+      cb(new Error('Only .txt, .mp3, .m4a and .wav files are allowed'));
     }
   }
 });
@@ -211,12 +211,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // If content changed, regenerate embedding
       if (updates.content && updates.content !== chunk.content) {
-        updates.embedding = await generateEmbedding(updates.content);
+        const newEmbedding = await generateEmbedding(updates.content);
+        updates.embedding = newEmbedding;
         updates.wordCount = updates.content.split(/\s+/).length;
         updates.isEmbedded = 1;
         
         // Update vector store
-        vectorStore.add(req.params.id, updates.embedding, {
+        vectorStore.add(req.params.id, newEmbedding, {
           content: updates.content,
           chunkId: req.params.id
         });

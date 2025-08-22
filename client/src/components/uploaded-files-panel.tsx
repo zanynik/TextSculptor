@@ -14,13 +14,13 @@ export default function UploadedFilesPanel({ bookStructure }: UploadedFilesPanel
 
   // This is a simplified way to split the text back into "files".
   // In a real application, you'd want a more robust way to track individual file contents.
-  const files = bookStructure.originalText.split('\n\n').filter(text => text.trim() !== '');
+  const files = bookStructure.originalText.split('\n\n').filter((text: string) => text.trim() !== '');
 
   return (
     <div className="p-4 border-t border-gray-200">
       <h3 className="text-sm font-medium text-gray-700 mb-3">Uploaded Content</h3>
       <div className="space-y-2">
-        {files.map((fileContent, index) => (
+        {files.map((fileContent: string, index: number) => (
           <div
             key={index}
             className="p-2 rounded-lg hover:bg-gray-100 cursor-pointer border border-gray-200"

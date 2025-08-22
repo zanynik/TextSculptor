@@ -83,6 +83,7 @@ export type UpdateChunk = z.infer<typeof updateChunkSchema>;
 export type BookStructure = {
   id: string;
   title: string;
+  originalText: string;
   chapters: ChapterWithSections[];
 };
 

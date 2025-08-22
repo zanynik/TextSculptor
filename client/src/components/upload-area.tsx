@@ -59,7 +59,7 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
 
   const handleFileSelect = (files: File[]) => {
     const validFiles = files.filter(file => {
-      const allowedTypes = ['text/plain', 'audio/mpeg', 'audio/wav'];
+      const allowedTypes = ['text/plain', 'audio/mpeg', 'audio/wav', 'audio/mp4'];
       if (!allowedTypes.includes(file.type)) {
         toast({
           title: "Invalid file type",
@@ -132,7 +132,7 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
       >
         <>
           <i className="fas fa-cloud-upload-alt text-2xl text-gray-400 mb-2"></i>
-          <p className="text-sm text-gray-600 font-medium">Drop .txt, .mp3, or .wav files here</p>
+          <p className="text-sm text-gray-600 font-medium">Drop .txt, .mp3, .m4a, or .wav files here</p>
           <p className="text-xs text-gray-500">or click to browse</p>
         </>
       </div>
@@ -140,7 +140,7 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".txt,.mp3,.wav"
+        accept=".txt,.mp3,.m4a,.wav"
         multiple
         className="hidden"
         onChange={handleFileInputChange}
