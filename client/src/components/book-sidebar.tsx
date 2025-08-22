@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import UploadArea from "./upload-area";
+import UploadedFilesPanel from "./uploaded-files-panel";
 import type { BookStructure, ChapterWithSections } from "@shared/schema";
 
 interface BookSidebarProps {
@@ -197,6 +198,8 @@ export default function BookSidebar({
             </div>
           </div>
           
+          <UploadedFilesPanel bookStructure={bookStructure} />
+
           {/* Sidebar Footer */}
           <div className="p-4 border-t border-gray-200 space-y-2">
             <button 

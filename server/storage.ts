@@ -136,6 +136,9 @@ export class MemStorage implements IStorage {
       id, 
       title: insertChunk.title || null,
       embedding: insertChunk.embedding || null,
+      similarity: insertChunk.similarity || null,
+      wordCount: insertChunk.wordCount || null,
+      isEmbedded: insertChunk.isEmbedded || 0,
       createdAt: now,
       updatedAt: now
     };
@@ -162,7 +165,7 @@ export class MemStorage implements IStorage {
     const updated: Chunk = {
       ...existing,
       ...updateChunk,
-      embedding: isNumberArray(updateChunk.embedding) ? JSON.parse(JSON.stringify(updateChunk.embedding)) : existing.embedding,
+      embedding: isNumberArray(updateChunk.embedding) ? Array.from(updateChunk.embedding) : existing.embedding,
       updatedAt: new Date(),
     };
     
@@ -244,6 +247,7 @@ export class MemStorage implements IStorage {
     return {
       id: book.id,
       title: book.title,
+      originalText: book.originalText,
       chapters: chaptersWithSections,
     };
   }

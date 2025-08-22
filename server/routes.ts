@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertBookSchema, insertChunkSchema, updateChunkSchema, isNumberArray } from "@shared/schema";
 import { chunkText, generateEmbedding, generateBatchEmbeddings, rewriteChunk } from "./services/openai";
+import { localAIService } from "./services/local-ai";
 import { vectorStore } from "./services/faiss";
 import { KMeansClustering, organizeIntoChaptersAndSections } from "./services/clustering";
 import multer from "multer";
@@ -13,10 +14,11 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'text/plain') {
+    const allowedTypes = ['text/plain', 'audio/mpeg', 'audio/wav', 'audio/mp4'];
+    if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Only .txt files are allowed'));
+      cb(new Error('Only .txt, .mp3, .m4a and .wav files are allowed'));
     }
   }
 });
@@ -30,13 +32,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const files = req.files as Express.Multer.File[];
-      let text = files.map(file => file.buffer.toString('utf-8')).join('\n\n');
+      let text = '';
 
-      if (!text.trim()) {
-        return res.status(400).json({ message: "Files are empty" });
+      for (const file of files) {
+        if (file.mimetype.startsWith('audio/')) {
+          text += await localAIService.transcribeAudio(file.buffer);
+        } else {
+          text += file.buffer.toString('utf-8');
+        }
+        text += '\n\n';
       }
 
-      const { bookId, rewriteLevel } = req.body;
+      if (!text.trim()) {
+        return res.status(400).json({ message: "Files are empty or contain no speech" });
+      }
+
+      const { bookId, rewriteLevel, embeddingType } = req.body;
       let book;
 
       if (bookId) {
@@ -70,7 +81,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Step 3: Generate embeddings for all chunks
       const chunkContents = chunkingResult.chunks.map(chunk => chunk.content);
-      const embeddings = await generateBatchEmbeddings(chunkContents);
+      let embeddings: number[][];
+
+      if (embeddingType === 'local') {
+        embeddings = await localAIService.generateBatchEmbeddings(chunkContents);
+      } else {
+        embeddings = await generateBatchEmbeddings(chunkContents);
+      }
 
       // Step 4: Store vectors in FAISS
       const chunkData = new Map<string, { content: string; title?: string }>();
@@ -194,12 +211,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // If content changed, regenerate embedding
       if (updates.content && updates.content !== chunk.content) {
-        updates.embedding = await generateEmbedding(updates.content);
+        const newEmbedding = await generateEmbedding(updates.content);
+        updates.embedding = newEmbedding;
         updates.wordCount = updates.content.split(/\s+/).length;
         updates.isEmbedded = 1;
         
         // Update vector store
-        vectorStore.add(req.params.id, updates.embedding, {
+        vectorStore.add(req.params.id, newEmbedding, {
           content: updates.content,
           chunkId: req.params.id
         });

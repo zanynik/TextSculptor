@@ -4,6 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import type { BookStructure } from "@shared/schema";
 
 interface UploadAreaProps {
@@ -16,6 +17,7 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
   const [uploadingFiles, setUploadingFiles] = useState<File[]>([]);
   const [processedFiles, setProcessedFiles] = useState<string[]>([]);
   const [rewriteLevel, setRewriteLevel] = useState(0.5);
+  const [embeddingType, setEmbeddingType] = useState<'openai' | 'local'>('openai');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -26,6 +28,7 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
       const formData = new FormData();
       files.forEach(file => formData.append('files', file));
       formData.append('rewriteLevel', String(rewriteLevel));
+      formData.append('embeddingType', embeddingType);
       if (bookId) {
         formData.append('bookId', bookId);
       }
@@ -56,10 +59,11 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
 
   const handleFileSelect = (files: File[]) => {
     const validFiles = files.filter(file => {
-      if (file.type !== 'text/plain') {
+      const allowedTypes = ['text/plain', 'audio/mpeg', 'audio/wav', 'audio/mp4'];
+      if (!allowedTypes.includes(file.type)) {
         toast({
           title: "Invalid file type",
-          description: `Skipping non-txt file: ${file.name}`,
+          description: `Skipping file: ${file.name}`,
           variant: "destructive",
         });
         return false;
@@ -128,7 +132,7 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
       >
         <>
           <i className="fas fa-cloud-upload-alt text-2xl text-gray-400 mb-2"></i>
-          <p className="text-sm text-gray-600 font-medium">Drop your .txt file(s) here</p>
+          <p className="text-sm text-gray-600 font-medium">Drop .txt, .mp3, .m4a, or .wav files here</p>
           <p className="text-xs text-gray-500">or click to browse</p>
         </>
       </div>
@@ -136,7 +140,7 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".txt"
+        accept=".txt,.mp3,.m4a,.wav"
         multiple
         className="hidden"
         onChange={handleFileInputChange}
@@ -161,6 +165,20 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
           onValueChange={(value) => setRewriteLevel(value[0])}
           disabled={uploadMutation.isPending}
         />
+      </div>
+
+      <div className="mt-4 space-y-2">
+        <div className="flex justify-between items-center">
+          <Label htmlFor="embeddingType" className="text-sm font-medium text-gray-700">
+            Use Local Embeddings
+          </Label>
+          <Switch
+            id="embeddingType"
+            checked={embeddingType === 'local'}
+            onCheckedChange={(checked) => setEmbeddingType(checked ? 'local' : 'openai')}
+            disabled={uploadMutation.isPending}
+          />
+        </div>
       </div>
 
       {processedFiles.length > 0 && (
