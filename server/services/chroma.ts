@@ -1,80 +1,59 @@
 import { ChromaClient, type Collection } from 'chromadb';
 
-// This class will replace the InMemoryVectorStore and provide a similar interface
-// for interacting with a vector database, but backed by ChromaDB.
 export class ChromaVectorStore {
   private client: ChromaClient;
-  private collectionName: string;
-  private collection: Collection | undefined;
+  private collections: Map<string, Collection> = new Map();
 
-  constructor(collectionName: string = "book-chunks") {
-    // Initialize the ChromaClient. By default, it runs in-memory
-    // and persists data to disk in the .chroma folder.
+  constructor() {
     this.client = new ChromaClient();
-    this.collectionName = collectionName;
   }
 
-  // Ensures the collection is initialized before use.
-  // It uses cosine distance to match the previous implementation's similarity metric.
-  private async initialize(): Promise<void> {
-    if (this.collection) {
-      return;
+  private async getCollection(collectionName: string): Promise<Collection> {
+    if (this.collections.has(collectionName)) {
+      return this.collections.get(collectionName)!;
     }
+
     try {
-      this.collection = await this.client.getOrCreateCollection({
-        name: this.collectionName,
+      const collection = await this.client.getOrCreateCollection({
+        name: collectionName,
         metadata: { "hnsw:space": "cosine" },
       });
+      this.collections.set(collectionName, collection);
+      return collection;
     } catch (error) {
-      console.error("Failed to initialize ChromaDB collection:", error);
+      console.error(`Failed to initialize ChromaDB collection "${collectionName}":`, error);
       throw error;
     }
   }
 
-  // Adds a vector to the collection.
-  async add(id: string, vector: number[], metadata?: any): Promise<void> {
-    await this.initialize();
-    if (!this.collection) {
-        throw new Error("Collection not initialized");
-    }
-
-    await this.collection.add({
+  async add(collectionName: string, id: string, vector: number[], metadata?: any): Promise<void> {
+    const collection = await this.getCollection(collectionName);
+    await collection.add({
       ids: [id],
       embeddings: [vector],
       metadatas: [metadata || {}],
-      documents: [metadata?.content || ''] // Documents are optional but good practice
+      documents: [metadata?.content || '']
     });
   }
 
-  // Removes a vector from the collection by its ID.
-  async remove(id: string): Promise<boolean> {
-    await this.initialize();
-    if (!this.collection) {
-        throw new Error("Collection not initialized");
-    }
+  async remove(collectionName: string, id: string): Promise<boolean> {
+    const collection = await this.getCollection(collectionName);
     try {
-      await this.collection.delete({ ids: [id] });
+      await collection.delete({ ids: [id] });
       return true;
     } catch (error) {
-        console.error(`Failed to remove vector with id ${id}:`, error);
-        return false;
+      console.error(`Failed to remove vector with id ${id} from collection ${collectionName}:`, error);
+      return false;
     }
   }
 
-  // Searches for the most similar vectors.
-  async search(queryVector: number[], topK: number = 5): Promise<Array<{ id: string; score: number; metadata?: any }>> {
-    await this.initialize();
-    if (!this.collection) {
-        throw new Error("Collection not initialized");
-    }
-
-    const results = await this.collection.query({
+  async search(collectionName: string, queryVector: number[], topK: number = 5): Promise<Array<{ id: string; score: number; metadata?: any }>> {
+    const collection = await this.getCollection(collectionName);
+    const results = await collection.query({
       queryEmbeddings: [queryVector],
       nResults: topK,
     });
 
-    // The results need to be mapped to the format expected by the application.
-    // The distance for cosine is 1 - similarity, so we convert it back.
     const ids = results.ids[0] || [];
     const distances = results.distances ? results.distances[0] : [];
     const metadatas = results.metadatas[0] || [];
@@ -86,25 +65,15 @@ export class ChromaVectorStore {
     }));
   }
 
-  // Returns the number of items in the collection.
-  async size(): Promise<number> {
-      await this.initialize();
-      if (!this.collection) {
-        throw new Error("Collection not initialized");
-    }
-      return await this.collection.count();
+  async size(collectionName: string): Promise<number> {
+    const collection = await this.getCollection(collectionName);
+    return await collection.count();
   }
 
-  // Clears the collection by deleting and recreating it.
-  async clear(): Promise<void> {
-    await this.initialize();
-    if (!this.collection) {
-        throw new Error("Collection not initialized");
-    }
-    await this.client.deleteCollection({ name: this.collectionName });
-    // Re-initialize the collection after clearing
-    this.collection = undefined;
-    await this.initialize();
+  async clear(collectionName: string): Promise<void> {
+    await this.getCollection(collectionName); // Ensure it exists
+    await this.client.deleteCollection({ name: collectionName });
+    this.collections.delete(collectionName);
   }
 }
 

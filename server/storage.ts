@@ -30,6 +30,7 @@ export interface IStorage {
 
   // Complex queries
   getBookStructure(bookId: string): Promise<BookStructure | undefined>;
+  getBookFromChunk(chunkId: string): Promise<Book | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -45,6 +46,7 @@ export class MemStorage implements IStorage {
       id,
       title: insertBook.title,
       originalFiles: insertBook.originalFiles,
+      embeddingType: insertBook.embeddingType || 'openai',
       createdAt: now,
       updatedAt: now,
     };
@@ -250,9 +252,27 @@ export class MemStorage implements IStorage {
     return {
       id: book.id,
       title: book.title,
+      embeddingType: book.embeddingType,
       originalFiles: book.originalFiles,
       chapters: chaptersWithSections,
     };
+  }
+
+  async getBookFromChunk(chunkId: string): Promise<Book | undefined> {
+    const chunk = this.chunks.get(chunkId);
+    if (!chunk) return undefined;
+
+    const section = this.sections.get(chunk.sectionId);
+    if (!section) return undefined;
+
+    // This is inefficient, but it's an in-memory implementation.
+    for (const chapter of this.chapters.values()) {
+      if (chapter.id === section.chapterId) {
+        return this.books.get(chapter.bookId);
+      }
+    }
+
+    return undefined;
   }
 }
 
