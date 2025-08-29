@@ -18,7 +18,6 @@ export default function GraphPage() {
 
   useEffect(() => {
     if (graphData) {
-      console.log("Graph data received:", graphData);
       const dagreGraph = new dagre.graphlib.Graph();
       dagreGraph.setDefaultEdgeLabel(() => ({}));
       dagreGraph.setGraph({ rankdir: 'TB' });
@@ -49,9 +48,6 @@ export default function GraphPage() {
         label: edge.label,
         animated: true,
       }));
-
-      console.log("Layouted nodes:", layoutedNodes);
-      console.log("Layouted edges:", layoutedEdges);
 
       setNodes(layoutedNodes);
       setEdges(layoutedEdges);
@@ -87,10 +83,9 @@ export default function GraphPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 font-inter antialiased">
-      <div className="flex-1" style={{ height: '100vh' }}>
-        <ReactFlow
-          nodes={nodes}
+    <div style={{ height: '100vh', width: '100%' }}>
+      <ReactFlow
+        nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
