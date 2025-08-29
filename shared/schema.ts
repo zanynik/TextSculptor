@@ -30,6 +30,7 @@ export const sections = pgTable("sections", {
 export const chunks = pgTable("chunks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   sectionId: varchar("section_id").notNull(),
+  nextChunkId: varchar("next_chunk_id"), // Added for graph structure
   title: text("title"),
   content: text("content").notNull(),
   embedding: json("embedding").$type<number[]>(),

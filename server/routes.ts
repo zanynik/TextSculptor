@@ -4,8 +4,8 @@ import { storage } from "./storage";
 import { insertBookSchema, insertChunkSchema, updateChunkSchema, isNumberArray } from "@shared/schema";
 import { chunkText, generateEmbedding, generateBatchEmbeddings, rewriteChunk } from "./services/openai";
 import { localAIService } from "./services/local-ai";
-import { vectorStore } from "./services/faiss";
-import { KMeansClustering, organizeIntoChaptersAndSections } from "./services/clustering";
+import { vectorStore } from "./services/chroma"; // Changed from faiss to chroma
+// import { KMeansClustering, organizeIntoChaptersAndSections } from "./services/clustering"; // Removed clustering
 import multer from "multer";
 import type { Request, Response } from "express";
 
@@ -58,7 +58,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           text = existingText + '\n\n' + text;
 
           const oldChunks = await storage.getAllChunksByBookId(bookId);
-          oldChunks.forEach(chunk => vectorStore.remove(chunk.id));
+          // Use Promise.all for async operations in a loop
+          await Promise.all(oldChunks.map(chunk => vectorStore.remove(chunk.id)));
           await storage.deleteChaptersByBookId(bookId);
 
           book.originalText = text; // Update original text
@@ -74,9 +75,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           title: chunkingResult.suggestedTitle,
           originalText: text,
         });
-      } else {
-        // Optional: update title if it was a placeholder
-        // book.title = chunkingResult.suggestedTitle;
       }
 
       // Step 3: Generate embeddings for all chunks
@@ -89,70 +87,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
         embeddings = await generateBatchEmbeddings(chunkContents);
       }
 
-      // Step 4: Store vectors in FAISS
-      const chunkData = new Map<string, { content: string; title?: string }>();
-      chunkingResult.chunks.forEach((chunk, index) => {
-        const chunkId = `chunk_${index}`;
-        vectorStore.add(chunkId, embeddings[index], { 
-          content: chunk.content,
-          title: chunk.title,
-          bookId: book.id 
-        });
-        chunkData.set(chunkId, chunk);
+      // Step 4: Create a single chapter and section for the book
+      const chapter = await storage.createChapter({
+        bookId: book.id,
+        title: "Content", // Simplified chapter title
+        order: 0,
       });
 
-      // Step 5: Cluster the vectors
-      const clustering = new KMeansClustering();
-      const numClusters = Math.min(Math.max(2, Math.ceil(chunkingResult.chunks.length / 4)), 6);
-      const vectorData = Array.from({ length: chunkingResult.chunks.length }, (_, i) => ({
-        id: `chunk_${i}`,
-        vector: embeddings[i],
-        metadata: chunkData.get(`chunk_${i}`)
-      }));
-      
-      const clusterResult = clustering.cluster(vectorData, numClusters);
-      
-      // Step 6: Organize into chapters and sections
-      const structure = organizeIntoChaptersAndSections(clusterResult, chunkData);
+      const section = await storage.createSection({
+        chapterId: chapter.id,
+        title: "All Chunks", // Simplified section title
+        order: 0,
+      });
 
-      // Step 7: Create database records
-      for (let chapterIndex = 0; chapterIndex < structure.length; chapterIndex++) {
-        const chapterData = structure[chapterIndex];
-        const chapter = await storage.createChapter({
-          bookId: book.id,
-          title: chapterData.title,
-          order: chapterIndex,
+      // Step 5: Process and store chunks sequentially
+      const createdChunks = [];
+      for (let i = 0; i < chunkingResult.chunks.length; i++) {
+        const chunkInfo = chunkingResult.chunks[i];
+        const embedding = embeddings[i];
+
+        const newChunk = await storage.createChunk({
+          sectionId: section.id,
+          title: chunkInfo.title,
+          content: chunkInfo.content,
+          embedding: embedding,
+          order: i,
+          wordCount: chunkInfo.content.split(/\s+/).length,
+          isEmbedded: 1,
         });
 
-        for (let sectionIndex = 0; sectionIndex < chapterData.sections.length; sectionIndex++) {
-          const sectionData = chapterData.sections[sectionIndex];
-          const section = await storage.createSection({
-            chapterId: chapter.id,
-            title: sectionData.title,
-            order: sectionIndex,
-          });
+        createdChunks.push(newChunk);
 
-          for (let chunkIndex = 0; chunkIndex < sectionData.chunkIds.length; chunkIndex++) {
-            const chunkId = sectionData.chunkIds[chunkIndex];
-            const originalIndex = parseInt(chunkId.split('_')[1]);
-            const chunk = chunkingResult.chunks[originalIndex];
-            const embedding = embeddings[originalIndex];
+        // Add to vector store
+        await vectorStore.add(newChunk.id, embedding, {
+          content: newChunk.content,
+          title: newChunk.title,
+          bookId: book.id,
+          chunkId: newChunk.id
+        });
+      }
 
-            const cleanEmbedding = JSON.parse(JSON.stringify(embedding));
-            if (isNumberArray(cleanEmbedding)) {
-              await storage.createChunk({
-                sectionId: section.id,
-                title: chunk.title,
-                content: chunk.content,
-                embedding: cleanEmbedding,
-                order: chunkIndex,
-                similarity: 0.95, // Placeholder - could calculate actual similarity
-                wordCount: chunk.content.split(/\s+/).length,
-                isEmbedded: 1,
-              });
-            }
-          }
-        }
+      // Step 6: Create graph and link chunks
+      // In this step, we'll just link them sequentially.
+      // The actual graph persistence will be handled by the storage layer.
+      for (let i = 0; i < createdChunks.length - 1; i++) {
+        const currentChunk = createdChunks[i];
+        const nextChunk = createdChunks[i + 1];
+        // This assumes the storage layer will be updated to handle this
+        await storage.updateChunk(currentChunk.id, { nextChunkId: nextChunk.id });
       }
 
       // Return the book structure
@@ -217,7 +199,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updates.isEmbedded = 1;
         
         // Update vector store
-        vectorStore.add(req.params.id, newEmbedding, {
+        await vectorStore.add(req.params.id, newEmbedding, {
           content: updates.content,
           chunkId: req.params.id
         });
@@ -244,7 +226,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       await storage.deleteChunk(req.params.id);
-      vectorStore.remove(req.params.id);
+      await vectorStore.remove(req.params.id);
       
       res.json({ message: "Chunk deleted successfully" });
     } catch (error) {
@@ -361,77 +343,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Re-organize book structure
+  // This endpoint is now problematic because it relies on clustering.
+  // I will disable it for now by returning an error.
   app.post("/api/books/:id/reorganize", async (req: Request, res: Response) => {
     try {
-      const bookStructure = await storage.getBookStructure(req.params.id);
-      if (!bookStructure) {
-        return res.status(404).json({ message: "Book not found" });
-      }
-
-      // Get all chunks for the book
-      const allChunks = await storage.getAllChunksByBookId(req.params.id);
-      
-      // Rebuild vector data
-      const vectorData = allChunks
-        .filter(chunk => chunk.embedding && chunk.embedding.length > 0)
-        .map(chunk => ({
-          id: chunk.id,
-          vector: chunk.embedding!,
-          metadata: { content: chunk.content }
-        }));
-
-      if (vectorData.length === 0) {
-        return res.status(400).json({ message: "No embedded chunks found" });
-      }
-
-      // Re-cluster
-      const clustering = new KMeansClustering();
-      const numClusters = Math.min(Math.max(2, Math.ceil(vectorData.length / 4)), 6);
-      const clusterResult = clustering.cluster(vectorData, numClusters);
-
-      // Create new structure map
-      const chunkData = new Map<string, { content: string; title?: string }>();
-      allChunks.forEach(chunk => {
-        chunkData.set(chunk.id, { content: chunk.content });
-      });
-
-      const newStructure = organizeIntoChaptersAndSections(clusterResult, chunkData);
-
-      // Delete existing chapters/sections (but keep chunks)
-      await storage.deleteChaptersByBookId(req.params.id);
-
-      // Create new structure
-      for (let chapterIndex = 0; chapterIndex < newStructure.length; chapterIndex++) {
-        const chapterData = newStructure[chapterIndex];
-        const chapter = await storage.createChapter({
-          bookId: req.params.id,
-          title: chapterData.title,
-          order: chapterIndex,
-        });
-
-        for (let sectionIndex = 0; sectionIndex < chapterData.sections.length; sectionIndex++) {
-          const sectionData = chapterData.sections[sectionIndex];
-          const section = await storage.createSection({
-            chapterId: chapter.id,
-            title: sectionData.title,
-            order: sectionIndex,
-          });
-
-          // Update chunk section assignments
-          for (let chunkIndex = 0; chunkIndex < sectionData.chunkIds.length; chunkIndex++) {
-            const chunkId = sectionData.chunkIds[chunkIndex];
-            await storage.updateChunk(chunkId, {
-              sectionId: section.id,
-              order: chunkIndex,
-            });
-          }
-        }
-      }
-
-      // Return updated book structure
-      const updatedBookStructure = await storage.getBookStructure(req.params.id);
-      res.json(updatedBookStructure);
-
+      return res.status(400).json({ message: "Book reorganization is not supported in the new workflow." });
     } catch (error) {
       console.error("Reorganization error:", error);
       res.status(500).json({ 
