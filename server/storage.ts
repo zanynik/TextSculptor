@@ -134,6 +134,7 @@ export class MemStorage implements IStorage {
     const chunk: Chunk = { 
       ...insertChunk, 
       id, 
+      nextChunkId: insertChunk.nextChunkId || null,
       title: insertChunk.title || null,
       embedding: insertChunk.embedding || null,
       similarity: insertChunk.similarity || null,
@@ -165,6 +166,7 @@ export class MemStorage implements IStorage {
     const updated: Chunk = {
       ...existing,
       ...updateChunk,
+      nextChunkId: updateChunk.nextChunkId === undefined ? existing.nextChunkId : updateChunk.nextChunkId,
       embedding: isNumberArray(updateChunk.embedding) ? Array.from(updateChunk.embedding) : existing.embedding,
       updatedAt: new Date(),
     };
