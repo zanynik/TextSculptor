@@ -96,6 +96,5 @@ export default function GraphPage() {
           <Background />
         </ReactFlow>
       </div>
-    </div>
   );
 }
