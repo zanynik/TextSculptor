@@ -18,6 +18,7 @@ export default function GraphPage() {
 
   useEffect(() => {
     if (graphData) {
+      console.log("Graph data received:", graphData);
       const dagreGraph = new dagre.graphlib.Graph();
       dagreGraph.setDefaultEdgeLabel(() => ({}));
       dagreGraph.setGraph({ rankdir: 'TB' });
@@ -48,6 +49,9 @@ export default function GraphPage() {
         label: edge.label,
         animated: true,
       }));
+
+      console.log("Layouted nodes:", layoutedNodes);
+      console.log("Layouted edges:", layoutedEdges);
 
       setNodes(layoutedNodes);
       setEdges(layoutedEdges);
