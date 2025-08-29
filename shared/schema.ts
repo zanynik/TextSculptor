@@ -6,7 +6,7 @@ import { z } from "zod";
 export const books = pgTable("books", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   title: text("title").notNull(),
-  originalText: text("original_text").notNull(),
+  originalFiles: json("original_files").$type<Array<{ filename: string; content: string }>>().notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -30,6 +30,7 @@ export const sections = pgTable("sections", {
 export const chunks = pgTable("chunks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   sectionId: varchar("section_id").notNull(),
+  filename: text("filename"), // Added for linking chunks from the same file
   nextChunkId: varchar("next_chunk_id"), // Added for graph structure
   title: text("title"),
   content: text("content").notNull(),
@@ -42,7 +43,12 @@ export const chunks = pgTable("chunks", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const insertBookSchema = createInsertSchema(books).omit({
+export const insertBookSchema = createInsertSchema(books, {
+  originalFiles: z.array(z.object({
+    filename: z.string(),
+    content: z.string(),
+  })),
+}).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -84,7 +90,7 @@ export type UpdateChunk = z.infer<typeof updateChunkSchema>;
 export type BookStructure = {
   id: string;
   title: string;
-  originalText: string;
+  originalFiles: Array<{ filename: string; content: string }>;
   chapters: ChapterWithSections[];
 };
 

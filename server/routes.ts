@@ -33,121 +33,117 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const files = req.files as Express.Multer.File[];
-      let text = '';
+      const originalFiles: Array<{ filename: string; content: string }> = [];
 
       for (const file of files) {
+        let content = '';
         if (file.mimetype.startsWith('audio/')) {
-          text += await localAIService.transcribeAudio(file.buffer);
+          content = await localAIService.transcribeAudio(file.buffer);
         } else {
-          text += file.buffer.toString('utf-8');
+          content = file.buffer.toString('utf-8');
         }
-        text += '\n\n';
+        originalFiles.push({ filename: file.originalname, content });
       }
 
-      if (!text.trim()) {
+      if (originalFiles.every(file => !file.content.trim())) {
         return res.status(400).json({ message: "Files are empty or contain no speech" });
       }
 
       const { bookId, rewriteLevel, embeddingType } = req.body;
       let book;
 
+      // TODO: This logic for appending to an existing book needs to be re-evaluated.
+      // For now, we'll assume a new book is created with each upload.
       if (bookId) {
-        book = await storage.getBook(bookId);
-        if (book) {
-          // Append text and delete old structure
-          const existingText = book.originalText || '';
-          text = existingText + '\n\n' + text;
+        // Clear old book structure
+        const oldChunks = await storage.getAllChunksByBookId(bookId);
+        await Promise.all(oldChunks.map(chunk => vectorStore.remove(chunk.id)));
+        await storage.deleteChaptersByBookId(bookId);
+      }
 
-          const oldChunks = await storage.getAllChunksByBookId(bookId);
-          // Use Promise.all for async operations in a loop
-          await Promise.all(oldChunks.map(chunk => vectorStore.remove(chunk.id)));
-          await storage.deleteChaptersByBookId(bookId);
+      // A title for the book can be suggested from the first file's chunking result
+      const firstFileContent = originalFiles[0]?.content || '';
+      const initialChunkingResult = await chunkText(firstFileContent, rewriteLevel ? parseFloat(rewriteLevel) : 0.5);
+      
+      book = await storage.createBook({
+        title: initialChunkingResult.suggestedTitle,
+        originalFiles: originalFiles,
+      });
 
-          book.originalText = text; // Update original text
+      await graphStorage.init();
+
+      let chapterOrder = 0;
+      for (const file of originalFiles) {
+        // Step 1: Create a chapter for each file
+        const chapter = await storage.createChapter({
+          bookId: book.id,
+          title: file.filename,
+          order: chapterOrder++,
+        });
+
+        // Step 2: Create a single section for the chapter
+        const section = await storage.createSection({
+          chapterId: chapter.id,
+          title: "Content",
+          order: 0,
+        });
+
+        // Step 3: Chunk the text
+        const chunkingResult = await chunkText(file.content, rewriteLevel ? parseFloat(rewriteLevel) : 0.5);
+        if (chunkingResult.chunks.length === 0) continue;
+
+        // Step 4: Generate embeddings
+        const chunkContents = chunkingResult.chunks.map(c => c.content);
+        let embeddings: number[][];
+        if (embeddingType === 'local') {
+          embeddings = await localAIService.generateBatchEmbeddings(chunkContents);
+        } else {
+          embeddings = await generateBatchEmbeddings(chunkContents);
+        }
+
+        // Step 5: Process and store chunks
+        const createdChunks = [];
+        for (let i = 0; i < chunkingResult.chunks.length; i++) {
+          const chunkInfo = chunkingResult.chunks[i];
+          const embedding = embeddings[i];
+
+          const newChunk = await storage.createChunk({
+            sectionId: section.id,
+            filename: file.filename,
+            title: chunkInfo.title,
+            content: chunkInfo.content,
+            embedding: embedding,
+            order: i,
+            wordCount: chunkInfo.content.split(/\s+/).length,
+            isEmbedded: 1,
+          });
+
+          createdChunks.push(newChunk);
+          await vectorStore.add(newChunk.id, embedding, {
+            content: newChunk.content,
+            title: newChunk.title,
+            bookId: book.id,
+            chunkId: newChunk.id,
+            filename: file.filename,
+          });
+        }
+
+        // Step 6: Link chunks within the same file
+        for (let i = 0; i < createdChunks.length - 1; i++) {
+          const currentChunk = createdChunks[i];
+          const nextChunk = createdChunks[i + 1];
+          await storage.updateChunk(currentChunk.id, { nextChunkId: nextChunk.id });
+        }
+
+        // Step 7: Add to graph database
+        for (const chunk of createdChunks) {
+          await graphStorage.addNode(book.id, chunk.id, { title: chunk.title, order: chunk.order, filename: file.filename });
+        }
+        for (let i = 0; i < createdChunks.length - 1; i++) {
+          await graphStorage.addEdge(book.id, createdChunks[i].id, createdChunks[i + 1].id, 'next');
         }
       }
 
-      // Step 1: Chunk the text using OpenAI
-      const chunkingResult = await chunkText(text, rewriteLevel ? parseFloat(rewriteLevel) : 0.5);
-      
-      // Step 2: Create or update book record
-      if (!book) {
-        book = await storage.createBook({
-          title: chunkingResult.suggestedTitle,
-          originalText: text,
-        });
-      }
-
-      // Step 3: Generate embeddings for all chunks
-      const chunkContents = chunkingResult.chunks.map(chunk => chunk.content);
-      let embeddings: number[][];
-
-      if (embeddingType === 'local') {
-        embeddings = await localAIService.generateBatchEmbeddings(chunkContents);
-      } else {
-        embeddings = await generateBatchEmbeddings(chunkContents);
-      }
-
-      // Step 4: Create a single chapter and section for the book
-      const chapter = await storage.createChapter({
-        bookId: book.id,
-        title: "Content", // Simplified chapter title
-        order: 0,
-      });
-
-      const section = await storage.createSection({
-        chapterId: chapter.id,
-        title: "All Chunks", // Simplified section title
-        order: 0,
-      });
-
-      // Step 5: Process and store chunks sequentially
-      const createdChunks = [];
-      for (let i = 0; i < chunkingResult.chunks.length; i++) {
-        const chunkInfo = chunkingResult.chunks[i];
-        const embedding = embeddings[i];
-
-        const newChunk = await storage.createChunk({
-          sectionId: section.id,
-          title: chunkInfo.title,
-          content: chunkInfo.content,
-          embedding: embedding,
-          order: i,
-          wordCount: chunkInfo.content.split(/\s+/).length,
-          isEmbedded: 1,
-        });
-
-        createdChunks.push(newChunk);
-
-        // Add to vector store
-        await vectorStore.add(newChunk.id, embedding, {
-          content: newChunk.content,
-          title: newChunk.title,
-          bookId: book.id,
-          chunkId: newChunk.id
-        });
-      }
-
-      // Step 6: Create graph and link chunks
-      // In this step, we'll just link them sequentially.
-      // The actual graph persistence will be handled by the storage layer.
-      for (let i = 0; i < createdChunks.length - 1; i++) {
-        const currentChunk = createdChunks[i];
-        const nextChunk = createdChunks[i + 1];
-        // This assumes the storage layer will be updated to handle this
-        await storage.updateChunk(currentChunk.id, { nextChunkId: nextChunk.id });
-      }
-
-      // Step 7: Add to graph database
-      await graphStorage.init();
-      for (const chunk of createdChunks) {
-        await graphStorage.addNode(book.id, chunk.id, { title: chunk.title, order: chunk.order });
-      }
-      for (let i = 0; i < createdChunks.length - 1; i++) {
-        await graphStorage.addEdge(book.id, createdChunks[i].id, createdChunks[i + 1].id, 'next');
-      }
-
-      // Return the book structure
       const bookStructure = await storage.getBookStructure(book.id);
       res.json(bookStructure);
 

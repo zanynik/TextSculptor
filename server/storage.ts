@@ -41,11 +41,12 @@ export class MemStorage implements IStorage {
   async createBook(insertBook: InsertBook): Promise<Book> {
     const id = randomUUID();
     const now = new Date();
-    const book: Book = { 
-      ...insertBook, 
-      id, 
+    const book: Book = {
+      id,
+      title: insertBook.title,
+      originalFiles: insertBook.originalFiles,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     };
     this.books.set(id, book);
     return book;
@@ -249,7 +250,7 @@ export class MemStorage implements IStorage {
     return {
       id: book.id,
       title: book.title,
-      originalText: book.originalText,
+      originalFiles: book.originalFiles,
       chapters: chaptersWithSections,
     };
   }
