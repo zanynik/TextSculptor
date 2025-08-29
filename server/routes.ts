@@ -5,6 +5,7 @@ import { insertBookSchema, insertChunkSchema, updateChunkSchema, isNumberArray }
 import { chunkText, generateEmbedding, generateBatchEmbeddings, rewriteChunk } from "./services/openai";
 import { localAIService } from "./services/local-ai";
 import { vectorStore } from "./services/chroma"; // Changed from faiss to chroma
+import { graphStorage } from "./services/graph";
 // import { KMeansClustering, organizeIntoChaptersAndSections } from "./services/clustering"; // Removed clustering
 import multer from "multer";
 import type { Request, Response } from "express";
@@ -137,6 +138,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updateChunk(currentChunk.id, { nextChunkId: nextChunk.id });
       }
 
+      // Step 7: Add to graph database
+      await graphStorage.init();
+      for (const chunk of createdChunks) {
+        await graphStorage.addNode(book.id, chunk.id, { title: chunk.title, order: chunk.order });
+      }
+      for (let i = 0; i < createdChunks.length - 1; i++) {
+        await graphStorage.addEdge(book.id, createdChunks[i].id, createdChunks[i + 1].id, 'next');
+      }
+
       // Return the book structure
       const bookStructure = await storage.getBookStructure(book.id);
       res.json(bookStructure);
@@ -170,6 +180,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(bookStructure);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch book" });
+    }
+  });
+
+  // Get book graph
+  app.get("/api/books/:id/graph", async (req: Request, res: Response) => {
+    try {
+      const graph = await graphStorage.getGraph(req.params.id);
+      if (!graph) {
+        return res.status(404).json({ message: "Graph not found for this book" });
+      }
+      res.json(graph);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch graph" });
     }
   });
 
