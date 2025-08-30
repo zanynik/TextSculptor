@@ -59,7 +59,7 @@ export default function UploadArea({ onBookCreated, bookId }: UploadAreaProps) {
 
   const handleFileSelect = (files: File[]) => {
     const validFiles = files.filter(file => {
-      const allowedTypes = ['text/plain', 'audio/mpeg', 'audio/wav', 'audio/mp4'];
+      const allowedTypes = ['text/plain', 'audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/x-m4a', 'audio/m4a'];
       if (!allowedTypes.includes(file.type)) {
         toast({
           title: "Invalid file type",
