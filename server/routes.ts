@@ -73,7 +73,7 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['text/plain', 'audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/x-m4a'];
+    const allowedTypes = ['text/plain', 'audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/x-m4a', 'audio/m4a'];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
