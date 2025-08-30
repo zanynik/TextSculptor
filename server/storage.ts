@@ -10,6 +10,7 @@ export interface IStorage {
 
   // Chapter operations
   createChapter(chapter: InsertChapter): Promise<Chapter>;
+  getChapter(id: string): Promise<Chapter | undefined>;
   getChaptersByBookId(bookId: string): Promise<Chapter[]>;
   deleteChaptersByBookId(bookId: string): Promise<void>;
 
@@ -30,6 +31,7 @@ export interface IStorage {
 
   // Complex queries
   getBookStructure(bookId: string): Promise<BookStructure | undefined>;
+  getBookFromChunk(chunkId: string): Promise<Book | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -45,6 +47,7 @@ export class MemStorage implements IStorage {
       id,
       title: insertBook.title,
       originalFiles: insertBook.originalFiles,
+      embeddingType: insertBook.embeddingType || 'openai',
       createdAt: now,
       updatedAt: now,
     };
@@ -85,6 +88,10 @@ export class MemStorage implements IStorage {
     };
     this.chapters.set(id, chapter);
     return chapter;
+  }
+
+  async getChapter(id: string): Promise<Chapter | undefined> {
+    return this.chapters.get(id);
   }
 
   async getChaptersByBookId(bookId: string): Promise<Chapter[]> {
@@ -250,9 +257,23 @@ export class MemStorage implements IStorage {
     return {
       id: book.id,
       title: book.title,
+      embeddingType: book.embeddingType,
       originalFiles: book.originalFiles,
       chapters: chaptersWithSections,
     };
+  }
+
+  async getBookFromChunk(chunkId: string): Promise<Book | undefined> {
+    const chunk = await this.getChunk(chunkId);
+    if (!chunk) return undefined;
+
+    const section = await this.getSection(chunk.sectionId);
+    if (!section) return undefined;
+
+    const chapter = await this.getChapter(section.chapterId);
+    if (!chapter) return undefined;
+
+    return this.getBook(chapter.bookId);
   }
 }
 

@@ -6,6 +6,7 @@ import { z } from "zod";
 export const books = pgTable("books", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   title: text("title").notNull(),
+  embeddingType: text('embedding_type', { enum: ['openai', 'local'] }).notNull().default('openai'),
   originalFiles: json("original_files").$type<Array<{ filename: string; content: string }>>().notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -48,6 +49,7 @@ export const insertBookSchema = createInsertSchema(books, {
     filename: z.string(),
     content: z.string(),
   })),
+  embeddingType: z.enum(['openai', 'local']),
 }).omit({
   id: true,
   createdAt: true,
@@ -90,6 +92,7 @@ export type UpdateChunk = z.infer<typeof updateChunkSchema>;
 export type BookStructure = {
   id: string;
   title: string;
+  embeddingType: 'openai' | 'local';
   originalFiles: Array<{ filename: string; content: string }>;
   chapters: ChapterWithSections[];
 };

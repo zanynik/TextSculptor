@@ -2,7 +2,10 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertBookSchema, insertChunkSchema, updateChunkSchema, isNumberArray } from "@shared/schema";
-import { chunkText, generateEmbedding, generateBatchEmbeddings, rewriteChunk } from "./services/openai";
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import { Readable } from "stream";
+import { chunkText, generateEmbedding, generateBatchEmbeddings, rewriteChunk, type TextChunk } from "./services/openai";
 import { localAIService } from "./services/local-ai";
 import { vectorStore } from "./services/chroma"; // Changed from faiss to chroma
 import { graphStorage } from "./services/graph";
@@ -10,12 +13,67 @@ import { graphStorage } from "./services/graph";
 import multer from "multer";
 import type { Request, Response } from "express";
 
+ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+
+// Function to convert audio buffer to WAV buffer
+function convertAudioToWav(audioBuffer: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const readableStream = new Readable();
+    readableStream.push(audioBuffer);
+    readableStream.push(null);
+
+    const buffers: any[] = [];
+    ffmpeg(readableStream)
+      .toFormat('wav')
+      .on('error', (err) => {
+        reject(new Error(`Audio conversion error: ${err.message}`));
+      })
+      .on('end', () => {
+        resolve(Buffer.concat(buffers));
+      })
+      .pipe()
+      .on('data', (chunk) => {
+        buffers.push(chunk);
+      });
+  });
+}
+
+// Simple local text chunker
+function localChunkText(text: string): TextChunk[] {
+  // A basic chunking strategy: split by paragraphs (double newlines)
+  // and then group into chunks of a certain size.
+  const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+  const chunks: TextChunk[] = [];
+  let currentChunkContent = "";
+
+  for (const paragraph of paragraphs) {
+    if (currentChunkContent.length + paragraph.length > 1000) { // Approx. chunk size
+      chunks.push({ title: "Chunk", content: currentChunkContent.trim() });
+      currentChunkContent = "";
+    }
+    currentChunkContent += paragraph + "\n\n";
+  }
+
+  if (currentChunkContent.trim().length > 0) {
+    chunks.push({ title: "Chunk", content: currentChunkContent.trim() });
+  }
+
+  // If there are no paragraphs, split by sentences.
+  if (chunks.length === 0 && text.length > 0) {
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+    chunks.push(...sentences.map(s => ({ title: "Chunk", content: s.trim() })));
+  }
+
+  // Add sequential titles
+  return chunks.map((chunk, i) => ({ ...chunk, title: `Chunk ${i + 1}` }));
+}
+
 // Configure multer for file uploads
 const upload = multer({ 
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['text/plain', 'audio/mpeg', 'audio/wav', 'audio/mp4'];
+    const allowedTypes = ['text/plain', 'audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/x-m4a'];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
@@ -38,7 +96,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const file of files) {
         let content = '';
         if (file.mimetype.startsWith('audio/')) {
-          content = await localAIService.transcribeAudio(file.buffer);
+          try {
+            const wavBuffer = await convertAudioToWav(file.buffer);
+            content = await localAIService.transcribeAudio(wavBuffer);
+          } catch (error) {
+            console.error(`Failed to process audio file ${file.originalname}:`, error);
+            // Optionally, you could decide to skip the file or return an error response
+            content = ''; // Or handle as a failed transcription
+          }
         } else {
           content = file.buffer.toString('utf-8');
         }
@@ -52,22 +117,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { bookId, rewriteLevel, embeddingType } = req.body;
       let book;
 
-      // TODO: This logic for appending to an existing book needs to be re-evaluated.
-      // For now, we'll assume a new book is created with each upload.
+      let embeddingTypeToUse: 'openai' | 'local' = embeddingType || 'openai';
+      let collectionName: string;
+
       if (bookId) {
-        // Clear old book structure
+        const existingBook = await storage.getBook(bookId);
+        if (!existingBook) {
+          return res.status(404).json({ message: "Book not found" });
+        }
+        embeddingTypeToUse = existingBook.embeddingType;
+        collectionName = `collection_${embeddingTypeToUse}`;
+
         const oldChunks = await storage.getAllChunksByBookId(bookId);
-        await Promise.all(oldChunks.map(chunk => vectorStore.remove(chunk.id)));
+        await Promise.all(oldChunks.map(chunk => vectorStore.remove(collectionName, chunk.id)));
         await storage.deleteChaptersByBookId(bookId);
+      } else {
+        collectionName = `collection_${embeddingTypeToUse}`;
       }
 
-      // A title for the book can be suggested from the first file's chunking result
-      const firstFileContent = originalFiles[0]?.content || '';
-      const initialChunkingResult = await chunkText(firstFileContent, rewriteLevel ? parseFloat(rewriteLevel) : 0.5);
+      let suggestedTitle = "Untitled Book";
+      let initialChunks: TextChunk[] = [];
+
+      if (embeddingTypeToUse === 'local') {
+        suggestedTitle = originalFiles[0]?.filename || "Untitled Book";
+        initialChunks = localChunkText(originalFiles[0]?.content || '');
+      } else {
+        const firstFileContent = originalFiles[0]?.content || '';
+        const initialChunkingResult = await chunkText(firstFileContent, rewriteLevel ? parseFloat(rewriteLevel) : 0.5);
+        suggestedTitle = initialChunkingResult.suggestedTitle;
+        initialChunks = initialChunkingResult.chunks;
+      }
       
       book = await storage.createBook({
-        title: initialChunkingResult.suggestedTitle,
+        title: suggestedTitle,
         originalFiles: originalFiles,
+        embeddingType: embeddingTypeToUse,
       });
 
       await graphStorage.init();
@@ -89,13 +173,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         // Step 3: Chunk the text
-        const chunkingResult = await chunkText(file.content, rewriteLevel ? parseFloat(rewriteLevel) : 0.5);
-        if (chunkingResult.chunks.length === 0) continue;
+        let chunks: TextChunk[];
+        if (embeddingTypeToUse === 'local') {
+          chunks = localChunkText(file.content);
+        } else {
+          const chunkingResult = await chunkText(file.content, rewriteLevel ? parseFloat(rewriteLevel) : 0.5);
+          chunks = chunkingResult.chunks;
+        }
+        if (chunks.length === 0) continue;
 
         // Step 4: Generate embeddings
-        const chunkContents = chunkingResult.chunks.map(c => c.content);
+        const chunkContents = chunks.map(c => c.content);
         let embeddings: number[][];
-        if (embeddingType === 'local') {
+        if (embeddingTypeToUse === 'local') {
           embeddings = await localAIService.generateBatchEmbeddings(chunkContents);
         } else {
           embeddings = await generateBatchEmbeddings(chunkContents);
@@ -103,8 +193,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Step 5: Process and store chunks
         const createdChunks = [];
-        for (let i = 0; i < chunkingResult.chunks.length; i++) {
-          const chunkInfo = chunkingResult.chunks[i];
+        for (let i = 0; i < chunks.length; i++) {
+          const chunkInfo = chunks[i];
           const embedding = embeddings[i];
 
           const newChunk = await storage.createChunk({
@@ -119,7 +209,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
 
           createdChunks.push(newChunk);
-          await vectorStore.add(newChunk.id, embedding, {
+          await vectorStore.add(collectionName, newChunk.id, embedding, {
             content: newChunk.content,
             title: newChunk.title,
             bookId: book.id,
@@ -212,13 +302,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // If content changed, regenerate embedding
       if (updates.content && updates.content !== chunk.content) {
-        const newEmbedding = await generateEmbedding(updates.content);
+        const book = await storage.getBookFromChunk(req.params.id);
+        if (!book) {
+          return res.status(404).json({ message: "Book not found for this chunk" });
+        }
+
+        const collectionName = `collection_${book.embeddingType}`;
+        let newEmbedding: number[];
+
+        if (book.embeddingType === 'local') {
+          newEmbedding = await localAIService.generateEmbedding(updates.content);
+        } else {
+          newEmbedding = await generateEmbedding(updates.content);
+        }
+
         updates.embedding = newEmbedding;
         updates.wordCount = updates.content.split(/\s+/).length;
         updates.isEmbedded = 1;
         
         // Update vector store
-        await vectorStore.add(req.params.id, newEmbedding, {
+        await vectorStore.add(collectionName, req.params.id, newEmbedding, {
           content: updates.content,
           chunkId: req.params.id
         });
@@ -244,8 +347,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Chunk not found" });
       }
 
+      const book = await storage.getBookFromChunk(req.params.id);
+      if (book) {
+        const collectionName = `collection_${book.embeddingType}`;
+        await vectorStore.remove(collectionName, req.params.id);
+      }
+
       await storage.deleteChunk(req.params.id);
-      await vectorStore.remove(req.params.id);
       
       res.json({ message: "Chunk deleted successfully" });
     } catch (error) {
