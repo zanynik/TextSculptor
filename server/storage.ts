@@ -10,6 +10,7 @@ export interface IStorage {
 
   // Chapter operations
   createChapter(chapter: InsertChapter): Promise<Chapter>;
+  getChapter(id: string): Promise<Chapter | undefined>;
   getChaptersByBookId(bookId: string): Promise<Chapter[]>;
   deleteChaptersByBookId(bookId: string): Promise<void>;
 
@@ -87,6 +88,10 @@ export class MemStorage implements IStorage {
     };
     this.chapters.set(id, chapter);
     return chapter;
+  }
+
+  async getChapter(id: string): Promise<Chapter | undefined> {
+    return this.chapters.get(id);
   }
 
   async getChaptersByBookId(bookId: string): Promise<Chapter[]> {
@@ -259,20 +264,16 @@ export class MemStorage implements IStorage {
   }
 
   async getBookFromChunk(chunkId: string): Promise<Book | undefined> {
-    const chunk = this.chunks.get(chunkId);
+    const chunk = await this.getChunk(chunkId);
     if (!chunk) return undefined;
 
-    const section = this.sections.get(chunk.sectionId);
+    const section = await this.getSection(chunk.sectionId);
     if (!section) return undefined;
 
-    // This is inefficient, but it's an in-memory implementation.
-    for (const chapter of this.chapters.values()) {
-      if (chapter.id === section.chapterId) {
-        return this.books.get(chapter.bookId);
-      }
-    }
+    const chapter = await this.getChapter(section.chapterId);
+    if (!chapter) return undefined;
 
-    return undefined;
+    return this.getBook(chapter.bookId);
   }
 }
 

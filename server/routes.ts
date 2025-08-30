@@ -117,24 +117,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { bookId, rewriteLevel, embeddingType } = req.body;
       let book;
 
-      // TODO: This logic for appending to an existing book needs to be re-evaluated.
-      // For now, we'll assume a new book is created with each upload.
-      const embeddingTypeToUse = embeddingType || 'openai';
-      const collectionName = `collection_${embeddingTypeToUse}`;
+      let embeddingTypeToUse: 'openai' | 'local' = embeddingType || 'openai';
+      let collectionName: string;
 
       if (bookId) {
         const existingBook = await storage.getBook(bookId);
         if (!existingBook) {
           return res.status(404).json({ message: "Book not found" });
         }
-        // When adding to an existing book, we must use its embedding type
-        const bookEmbeddingType = existingBook.embeddingType;
-        const collectionName = `collection_${bookEmbeddingType}`;
+        embeddingTypeToUse = existingBook.embeddingType;
+        collectionName = `collection_${embeddingTypeToUse}`;
 
-        // Clear old book structure
         const oldChunks = await storage.getAllChunksByBookId(bookId);
         await Promise.all(oldChunks.map(chunk => vectorStore.remove(collectionName, chunk.id)));
         await storage.deleteChaptersByBookId(bookId);
+      } else {
+        collectionName = `collection_${embeddingTypeToUse}`;
       }
 
       let suggestedTitle = "Untitled Book";
