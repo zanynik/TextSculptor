@@ -1,4 +1,5 @@
 import { pipeline, AutoTokenizer, AutoModel } from '@xenova/transformers';
+import wavefile from 'wavefile';
 
 class LocalAIService {
   private transcriber: any;
@@ -20,9 +21,19 @@ class LocalAIService {
     if (!this.transcriber) {
       await this.initialize();
     }
-    // The pipeline can directly handle a Buffer of a WAV file.
-    // The previous implementation was incorrectly interpreting the WAV header as audio data.
-    const output = await this.transcriber(audioBuffer);
+
+    // Read .wav file and convert it to required format
+    const wav = new wavefile.WaveFile(audioBuffer);
+    wav.toBitDepth('32f'); // Pipeline expects input as a Float32Array
+    wav.toSampleRate(16000); // Whisper expects audio with a sampling rate of 16000
+    let audioData = wav.getSamples();
+    if (Array.isArray(audioData)) {
+        // For this demo, if there are multiple channels for the audio file, we just
+        // select the first one.
+        audioData = audioData[0];
+    }
+
+    const output = await this.transcriber(audioData);
     return output.text;
   }
 
