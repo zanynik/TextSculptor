@@ -47,11 +47,12 @@ export class ChromaVectorStore {
     }
   }
 
-  async search(collectionName: string, queryVector: number[], topK: number = 5): Promise<Array<{ id: string; score: number; metadata?: any }>> {
+  async search(collectionName: string, queryVector: number[], topK: number = 5, where: object = {}): Promise<Array<{ id: string; score: number; metadata?: any }>> {
     const collection = await this.getCollection(collectionName);
     const results = await collection.query({
       queryEmbeddings: [queryVector],
       nResults: topK,
+      where,
     });
 
     const ids = results.ids[0] || [];

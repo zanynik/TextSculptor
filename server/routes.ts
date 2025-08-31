@@ -282,6 +282,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Search within a book
+  app.get("/api/books/:id/search", async (req: Request, res: Response) => {
+    try {
+      const { q: searchQuery } = req.query;
+      const { id: bookId } = req.params;
+
+      if (!searchQuery || typeof searchQuery !== 'string') {
+        return res.status(400).json({ message: "Search query is required" });
+      }
+
+      const book = await storage.getBook(bookId);
+      if (!book) {
+        return res.status(404).json({ message: "Book not found" });
+      }
+
+      const collectionName = `collection_${book.embeddingType}`;
+      let queryEmbedding: number[];
+
+      if (book.embeddingType === 'local') {
+        queryEmbedding = await localAIService.generateEmbedding(searchQuery);
+      } else {
+        queryEmbedding = await generateEmbedding(searchQuery);
+      }
+
+      const searchResults = await vectorStore.search(
+        collectionName,
+        queryEmbedding,
+        10, // topK
+        { bookId: book.id }
+      );
+
+      // We only need to return the chunk IDs and their scores
+      const resultIds = searchResults.map(r => ({ id: r.metadata.chunkId, score: r.score }));
+
+      res.json(resultIds);
+
+    } catch (error) {
+      console.error("Search error:", error);
+      res.status(500).json({
+        message: "Failed to perform search",
+        error: (error as Error).message
+      });
+    }
+  });
+
   // Update chunk content
   app.patch("/api/chunks/:id", async (req: Request, res: Response) => {
     try {
