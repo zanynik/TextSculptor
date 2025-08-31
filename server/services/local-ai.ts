@@ -20,8 +20,9 @@ class LocalAIService {
     if (!this.transcriber) {
       await this.initialize();
     }
-    const audioData = new Float32Array(audioBuffer.buffer);
-    const output = await this.transcriber(audioData);
+    // The pipeline can directly handle a Buffer of a WAV file.
+    // The previous implementation was incorrectly interpreting the WAV header as audio data.
+    const output = await this.transcriber(audioBuffer);
     return output.text;
   }
 
